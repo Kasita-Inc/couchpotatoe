@@ -5,6 +5,7 @@ import (
 	upnp "github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -35,43 +36,64 @@ type Playback struct {
 type Device struct {
 	ExtendedControlBaseURL url.URL
 	AVTransport            *av1.AVTransport1
+	Status                 Status
+	Playback               Playback
 }
 
-func (d *Device) GetStatus() (status Status, err error) {
+func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
+	err = maybeRoot.Err
+	if err == nil {
+		extendedControlURL := maybeRoot.Root.Device.PresentationURL.URL
+		extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
+		avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
+		if err == nil {
+			device = &Device{extendedControlURL, avTransportClients[0], Status{}, Playback{}}
+			err = device.SyncStatus()
+			if err == nil {
+				err = device.SyncPlayback()
+			}
+		}
+	}
+
+	return device, err
+}
+
+func (d *Device) SyncStatus() (err error) {
 	url := d.ExtendedControlBaseURL
 	url.Path = path.Join(d.ExtendedControlBaseURL.Path, "main", "getStatus")
 
-	resp, err := http.Get(url.String())
+	req, err := http.NewRequest("GET", url.String(), nil)
 	if err == nil {
-		err = json.NewDecoder(resp.Body).Decode(&status)
+		resp, err := extendedControlRequest(req)
+		if err == nil {
+			defer resp.Body.Close()
+			err = json.NewDecoder(resp.Body).Decode(&d.Status)
+		}
 	}
 
-	return status, err
+	return err
 }
 
-func (d *Device) GetPlayback() (playback Playback, err error) {
+func (d *Device) SyncPlayback() (err error) {
 	url := d.ExtendedControlBaseURL
 	url.Path = path.Join(d.ExtendedControlBaseURL.Path, "netusb", "getPlayInfo")
 
 	resp, err := http.Get(url.String())
 	if err == nil {
-		err = json.NewDecoder(resp.Body).Decode(&playback)
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&d.Playback)
 	}
 
-	return playback, err
+	return err
 }
 
 func Discover() (devices []*Device, err error) {
 	maybeRootDevices, err := upnp.DiscoverDevices("urn:schemas-upnp-org:device:MediaRenderer:1")
 	if err == nil {
 		for _, maybeRoot := range maybeRootDevices {
-			if maybeRoot.Err == nil {
-				extendedControlURL := maybeRoot.Root.Device.PresentationURL.URL
-				extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
-				avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
-				if err == nil {
-					devices = append(devices, &Device{extendedControlURL, avTransportClients[0]})
-				}
+			dev, err := NewDevice(maybeRoot)
+			if err == nil {
+				devices = append(devices, dev)
 			}
 		}
 	}
@@ -79,9 +101,48 @@ func Discover() (devices []*Device, err error) {
 	return devices, nil
 }
 
+func Listen(ch chan map[string]interface{}) {
+	listenAddr, err := net.ResolveUDPAddr("udp", ":41100")
+	if err == nil {
+		conn, err := net.ListenUDP("udp", listenAddr)
+		if err == nil {
+			defer conn.Close()
+			buf := make([]byte, 1024)
+			for {
+				size, _, err := conn.ReadFromUDP(buf)
+				if err == nil {
+					var payload map[string]interface{}
+					json.Unmarshal(buf[0:size], &payload)
+					ch <- payload
+				}
+			}
+		}
+	}
+}
+
+func extendedControlRequest(req *http.Request) (resp *http.Response, err error) {
+	req.Header.Add("X-AppName", "MusicCast/1.50")
+	req.Header.Add("X-AppPort", "41100")
+	client := &http.Client{}
+	return client.Do(req)
+}
+
 func main() {
 	devices, err := Discover()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	ch := make(chan map[string]interface{})
+	go Listen(ch)
+
+	for _, device := range devices {
+		log.Println(device.Status)
+		log.Println(device.Playback)
+	}
+
+	for {
+		payload := <-ch
+		log.Println(payload)
 	}
 }
