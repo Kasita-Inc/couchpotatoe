@@ -34,74 +34,37 @@ type Playback struct {
 }
 
 type Device struct {
-	ExtendedControlBaseURL url.URL
-	AVTransport            *av1.AVTransport1
+	DeviceID               string `json:"device_id"`
+	DeviceModel            string `json:"model_name"`
+	NetworkName            string `json:"network_name"`
 	Status                 Status
 	Playback               Playback
+	httpClient             *http.Client
+	avTransport            *av1.AVTransport1
+	extendedControlBaseURL url.URL
 }
 
-func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
-	err = maybeRoot.Err
-	if err == nil {
-		extendedControlURL := maybeRoot.Root.Device.PresentationURL.URL
-		extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
-		avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
-		if err == nil {
-			device = &Device{extendedControlURL, avTransportClients[0], Status{}, Playback{}}
-			err = device.SyncStatus()
-			if err == nil {
-				err = device.SyncPlayback()
-			}
-		}
-	}
+type Event map[string]interface{}
 
-	return device, err
-}
+var availableDevices = make(map[string]*Device)
 
-func (d *Device) SyncStatus() (err error) {
-	url := d.ExtendedControlBaseURL
-	url.Path = path.Join(d.ExtendedControlBaseURL.Path, "main", "getStatus")
-
-	req, err := http.NewRequest("GET", url.String(), nil)
-	if err == nil {
-		resp, err := extendedControlRequest(req)
-		if err == nil {
-			defer resp.Body.Close()
-			err = json.NewDecoder(resp.Body).Decode(&d.Status)
-		}
-	}
-
-	return err
-}
-
-func (d *Device) SyncPlayback() (err error) {
-	url := d.ExtendedControlBaseURL
-	url.Path = path.Join(d.ExtendedControlBaseURL.Path, "netusb", "getPlayInfo")
-
-	resp, err := http.Get(url.String())
-	if err == nil {
-		defer resp.Body.Close()
-		err = json.NewDecoder(resp.Body).Decode(&d.Playback)
-	}
-
-	return err
-}
-
-func Discover() (devices []*Device, err error) {
+// Discover attempts to find MusicCast devices on the local network.
+func Discover() (err error) {
 	maybeRootDevices, err := upnp.DiscoverDevices("urn:schemas-upnp-org:device:MediaRenderer:1")
 	if err == nil {
 		for _, maybeRoot := range maybeRootDevices {
-			dev, err := NewDevice(maybeRoot)
+			d, err := NewDevice(maybeRoot)
 			if err == nil {
-				devices = append(devices, dev)
+				availableDevices[d.DeviceID] = d
 			}
 		}
 	}
 
-	return devices, nil
+	return err
 }
 
-func Listen(ch chan map[string]interface{}) {
+// Listen listens and dispatches incoming MusicCast events.
+func Listen() (err error) {
 	listenAddr, err := net.ResolveUDPAddr("udp", ":41100")
 	if err == nil {
 		conn, err := net.ListenUDP("udp", listenAddr)
@@ -110,39 +73,133 @@ func Listen(ch chan map[string]interface{}) {
 			buf := make([]byte, 1024)
 			for {
 				size, _, err := conn.ReadFromUDP(buf)
-				if err == nil {
-					var payload map[string]interface{}
-					json.Unmarshal(buf[0:size], &payload)
-					ch <- payload
+				if err != nil {
+					log.Panic(err)
+				}
+				var payload Event
+				err = json.Unmarshal(buf[0:size], &payload)
+				if err != nil {
+					log.Panic(err)
+				}
+				d := availableDevices[payload["device_id"].(string)]
+				err = d.processEvent(payload)
+				if err != nil {
+					log.Panic(err)
 				}
 			}
 		}
 	}
+
+	return err
 }
 
-func extendedControlRequest(req *http.Request) (resp *http.Response, err error) {
-	req.Header.Add("X-AppName", "MusicCast/1.50")
-	req.Header.Add("X-AppPort", "41100")
-	client := &http.Client{}
-	return client.Do(req)
+// NewDevice creates a new Device from the given UPnP root device.
+func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
+	err = maybeRoot.Err
+	if err == nil {
+		extendedControlURL := maybeRoot.Root.Device.PresentationURL.URL
+		extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
+		avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
+		if err == nil {
+			device = &Device{"", "", "", Status{}, Playback{}, &http.Client{}, avTransportClients[0], extendedControlURL}
+			err = device.sync()
+		}
+	}
+
+	return device, err
+}
+
+func (d *Device) fetchDeviceInfo() (err error) {
+	resp, err := d.request("GET", "system/getDeviceInfo")
+	if err == nil {
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&d)
+	}
+
+	return err
+}
+
+func (d *Device) fetchNetworkStatus() (err error) {
+	resp, err := d.request("GET", "system/getNetworkStatus")
+	if err == nil {
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&d)
+	}
+
+	return err
+}
+
+func (d *Device) fetchStatus() (err error) {
+	resp, err := d.request("GET", "main/getStatus")
+	if err == nil {
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&d.Status)
+	}
+
+	return err
+}
+
+func (d *Device) fetchPlayback() (err error) {
+	resp, err := d.request("GET", "netusb/getPlayInfo")
+	if err == nil {
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&d.Playback)
+	}
+
+	return err
+}
+
+func (d *Device) sync() (err error) {
+	err = d.fetchDeviceInfo()
+	if err == nil {
+		err = d.fetchNetworkStatus()
+		if err == nil {
+			err = d.fetchStatus()
+			if err == nil {
+				err = d.fetchPlayback()
+			}
+		}
+	}
+
+	return err
+}
+
+func (d *Device) processEvent(e Event) (err error) {
+	return nil
+}
+
+func (d *Device) request(m string, p string) (resp *http.Response, err error) {
+	return d.requestWithParams(m, p, make(map[string]string))
+}
+
+func (d *Device) requestWithParams(m string, p string, q map[string]string) (resp *http.Response, err error) {
+	url := d.extendedControlBaseURL
+	url.Path = path.Join(url.Path, p)
+
+	req, err := http.NewRequest(m, url.String(), nil)
+	if err == nil {
+		req.Header.Add("X-AppName", "MusicCast/1.50")
+		req.Header.Add("X-AppPort", "41100")
+		if len(q) > 0 {
+			params := req.URL.Query()
+			for k, v := range q {
+				params.Add(k, v)
+			}
+			req.URL.RawQuery = params.Encode()
+		}
+		resp, err = d.httpClient.Do(req)
+	}
+
+	return resp, err
 }
 
 func main() {
-	devices, err := Discover()
+	err := Discover()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ch := make(chan map[string]interface{})
-	go Listen(ch)
+	go Listen()
 
-	for _, device := range devices {
-		log.Println(device.Status)
-		log.Println(device.Playback)
-	}
-
-	for {
-		payload := <-ch
-		log.Println(payload)
-	}
+	select {}
 }
