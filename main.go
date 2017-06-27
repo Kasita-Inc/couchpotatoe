@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	upnp "github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
 	"log"
@@ -12,12 +13,12 @@ import (
 )
 
 type Status struct {
+	Input     string `json:"input"`
 	Power     string `json:"power"`
 	Sleep     uint8  `json:"sleep"`
 	Volume    uint8  `json:"volume"`
 	Mute      bool   `json:"mute"`
 	MaxVolume uint8  `json:"max_volume"`
-	Input     string `json:"input"`
 }
 
 type Playback struct {
@@ -54,6 +55,7 @@ func Discover() (err error) {
 	if err == nil {
 		for _, maybeRoot := range maybeRootDevices {
 			d, err := NewDevice(maybeRoot)
+			log.Println(d.DeviceID, "is available")
 			if err == nil {
 				availableDevices[d.DeviceID] = d
 			}
@@ -165,7 +167,42 @@ func (d *Device) sync() (err error) {
 }
 
 func (d *Device) processEvent(e Event) (err error) {
-	return nil
+	delete(e, "device_id")
+	if main, ok := e["main"].(map[string]interface{}); ok {
+		if main["status_updated"] == true {
+			err = d.fetchStatus()
+			delete(main, "status_updated")
+		}
+		if main["signal_info_updated"] == true {
+			delete(main, "signal_info_updated")
+		}
+		err = updateIn(&d.Status, main)
+		delete(e, "main")
+	}
+
+	if netusb, ok := e["netusb"].(map[string]interface{}); ok {
+		if netusb["play_info_updated"] == true {
+			err = d.fetchPlayback()
+			delete(netusb, "play_info_updated")
+		}
+		if netusb["recent_updated"] == true {
+			delete(netusb, "recent_updated")
+		}
+		if playQueue, ok := netusb["play_queue"].(map[string]interface{}); ok {
+			if playQueue["updated"] == true {
+				delete(playQueue, "updated")
+			}
+			delete(netusb, "play_queue")
+		}
+		err = updateIn(&d.Playback, netusb)
+		delete(e, "netusb")
+	}
+
+	if len(e) > 0 {
+		err = fmt.Errorf("unhandled fragment in MusicCast event %v", e)
+	}
+
+	return err
 }
 
 func (d *Device) request(m string, p string) (resp *http.Response, err error) {
@@ -191,6 +228,17 @@ func (d *Device) requestWithParams(m string, p string, q map[string]string) (res
 	}
 
 	return resp, err
+}
+
+func updateIn(field interface{}, update map[string]interface{}) (err error) {
+	if len(update) > 0 {
+		data, err := json.Marshal(update)
+		if err == nil {
+			err = json.Unmarshal(data, field)
+		}
+	}
+
+	return err
 }
 
 func main() {
