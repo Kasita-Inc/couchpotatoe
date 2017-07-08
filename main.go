@@ -112,6 +112,61 @@ func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
 	return device, err
 }
 
+// SetPlayback sets the playback state to the given value.
+func (d *Device) SetPlayback(playback string) (err error) {
+	params := map[string]interface{}{"playback": playback}
+	resp, err := d.requestWithParams("GET", "netusb/setPlayback", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
+	}
+
+	return err
+}
+
+// SetVolume sets the volume to the given value.
+func (d *Device) SetVolume(volume int) (err error) {
+	params := map[string]interface{}{"volume": volume}
+	resp, err := d.requestWithParams("GET", "main/setVolume", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
+	}
+
+	return err
+}
+
+// IncreaseVolume increases the volume by the given value.
+func (d *Device) IncreaseVolume(step int) (err error) {
+	params := map[string]interface{}{"volume": "up", "step": step}
+	resp, err := d.requestWithParams("GET", "main/setVolume", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
+	}
+
+	return err
+}
+
+// DecreaseVolume decreases the volume by the given value.
+func (d *Device) DecreaseVolume(step int) (err error) {
+	params := map[string]interface{}{"volume": "down", "step": step}
+	resp, err := d.requestWithParams("GET", "main/setVolume", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
+	}
+
+	return err
+}
+
+// SetMute mutes and unmutes the volume.
+func (d *Device) SetMute(mute bool) (err error) {
+	params := map[string]interface{}{"enable": mute}
+	resp, err := d.requestWithParams("GET", "main/setMute", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
+	}
+
+	return err
+}
+
 func (d *Device) fetchDeviceInfo() (err error) {
 	resp, err := d.request("GET", "system/getDeviceInfo")
 	if err == nil {
@@ -210,10 +265,10 @@ func (d *Device) processEvent(e Event) (err error) {
 }
 
 func (d *Device) request(m string, p string) (resp *http.Response, err error) {
-	return d.requestWithParams(m, p, make(map[string]string))
+	return d.requestWithParams(m, p, make(map[string]interface{}))
 }
 
-func (d *Device) requestWithParams(m string, p string, q map[string]string) (resp *http.Response, err error) {
+func (d *Device) requestWithParams(m string, p string, q map[string]interface{}) (resp *http.Response, err error) {
 	url := d.extendedControlBaseURL
 	url.Path = path.Join(url.Path, p)
 
@@ -224,7 +279,7 @@ func (d *Device) requestWithParams(m string, p string, q map[string]string) (res
 		if len(q) > 0 {
 			params := req.URL.Query()
 			for k, v := range q {
-				params.Add(k, v)
+				params.Add(k, fmt.Sprint(v))
 			}
 			req.URL.RawQuery = params.Encode()
 		}
@@ -232,6 +287,19 @@ func (d *Device) requestWithParams(m string, p string, q map[string]string) (res
 	}
 
 	return resp, err
+}
+
+func decodeResponse(resp *http.Response) (data map[string]interface{}, err error) {
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	if err == nil {
+		resp_code := data["response_code"].(float64)
+		delete(data, "response_code")
+		if resp_code != 0 {
+			err = fmt.Errorf("extended control error %d", resp_code)
+		}
+	}
+	return data, err
 }
 
 func updateIn(field interface{}, update map[string]interface{}) (err error) {
