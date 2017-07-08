@@ -5,6 +5,7 @@ import (
 	"fmt"
 	upnp "github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
+	"github.com/kr/pretty"
 	"log"
 	"net"
 	"net/http"
@@ -167,6 +168,7 @@ func (d *Device) sync() (err error) {
 }
 
 func (d *Device) processEvent(e Event) (err error) {
+	old := *d
 	delete(e, "device_id")
 	if main, ok := e["main"].(map[string]interface{}); ok {
 		if main["status_updated"] == true {
@@ -197,6 +199,8 @@ func (d *Device) processEvent(e Event) (err error) {
 		err = updateIn(&d.Playback, netusb)
 		delete(e, "netusb")
 	}
+
+	log.Println(d.DeviceID, "=>", pretty.Diff(old, *d))
 
 	if len(e) > 0 {
 		err = fmt.Errorf("unhandled fragment in MusicCast event %v", e)
