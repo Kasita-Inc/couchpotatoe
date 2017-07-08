@@ -66,34 +66,39 @@ func Discover() (devices []*Device, err error) {
 	return devices, err
 }
 
-// Listen listens and dispatches incoming MusicCast events.
-func Listen() (err error) {
-	listenAddr, err := net.ResolveUDPAddr("udp", ":41100")
-	if err == nil {
+// Listen listens and dispatches incoming YXC events.
+func Listen() {
+	go func() {
+		listenAddr, err := net.ResolveUDPAddr("udp", ":41100")
+		if err != nil {
+			panic(err)
+		}
+
 		conn, err := net.ListenUDP("udp", listenAddr)
-		if err == nil {
-			defer conn.Close()
-			buf := make([]byte, 1024)
-			for {
-				size, _, err := conn.ReadFromUDP(buf)
-				if err != nil {
-					panic(err)
-				}
-				var payload event
-				err = json.Unmarshal(buf[0:size], &payload)
-				if err != nil {
-					panic(err)
-				}
-				d := availableDevices[payload["device_id"].(string)]
-				err = d.processevent(payload)
-				if err != nil {
-					panic(err)
-				}
+		if err != nil {
+			panic(err)
+		}
+
+		buf := make([]byte, 1024)
+		defer conn.Close()
+
+		for {
+			size, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				panic(err)
+			}
+			var payload event
+			err = json.Unmarshal(buf[0:size], &payload)
+			if err != nil {
+				panic(err)
+			}
+			d := availableDevices[payload["device_id"].(string)]
+			err = d.processevent(payload)
+			if err != nil {
+				panic(err)
 			}
 		}
-	}
-
-	return err
+	}()
 }
 
 // NewDevice creates a new Device from the given UPnP root device.

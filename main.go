@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
+	musiccast.Listen()
 	devices, err := musiccast.Discover()
 	if err != nil {
 		log.Fatal(err)
@@ -15,6 +16,5 @@ func main() {
 		log.Println(d.DeviceID, "available")
 	}
 
-	go musiccast.Listen()
 	select {}
 }
