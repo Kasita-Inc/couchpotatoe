@@ -117,15 +117,24 @@ func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
 	return device, err
 }
 
-// SetPlayback sets the playback state to the given value.
-func (d *Device) SetPlayback(playback string) (err error) {
-	params := map[string]interface{}{"playback": playback}
-	resp, err := d.requestWithParams("GET", "netusb/setPlayback", params)
-	if err == nil {
-		_, err = decodeResponse(resp)
-	}
+// Play begins playback of the current track.
+func (d *Device) Play() (err error) {
+	return d.setPlayback("play")
+}
 
-	return err
+// Pause pauses playback of the current track.
+func (d *Device) Pause() (err error) {
+	return d.setPlayback("pause")
+}
+
+// Next plays the next track.
+func (d *Device) Next() (err error) {
+	return d.setPlayback("next")
+}
+
+// Next plays the previous track.
+func (d *Device) Previous() (err error) {
+	return d.setPlayback("previous")
 }
 
 // SetVolume sets the volume to the given value.
@@ -267,6 +276,16 @@ func (d *Device) processevent(e event) (err error) {
 
 	if len(e) > 0 {
 		err = fmt.Errorf("unhandled fragment in MusicCast event %v", e)
+	}
+
+	return err
+}
+
+func (d *Device) setPlayback(playback string) (err error) {
+	params := map[string]interface{}{"playback": playback}
+	resp, err := d.requestWithParams("GET", "netusb/setPlayback", params)
+	if err == nil {
+		_, err = decodeResponse(resp)
 	}
 
 	return err
