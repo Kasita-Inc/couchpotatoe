@@ -93,7 +93,7 @@ func Listen() {
 				panic(err)
 			}
 			d := availableDevices[payload["device_id"].(string)]
-			err = d.processevent(payload)
+			err = d.processEvent(payload)
 			if err != nil {
 				panic(err)
 			}
@@ -236,7 +236,7 @@ func (d *Device) sync() (err error) {
 	return err
 }
 
-func (d *Device) processevent(e event) (err error) {
+func (d *Device) processEvent(e event) (err error) {
 	old := *d
 	delete(e, "device_id")
 	if main, ok := e["main"].(map[string]interface{}); ok {
