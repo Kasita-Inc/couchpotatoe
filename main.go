@@ -13,7 +13,7 @@ func main() {
 	}
 
 	for _, d := range devices {
-		log.Println(d.DeviceID, "available")
+		log.Println(d.GetDeviceID(), "is available")
 	}
 
 	select {}

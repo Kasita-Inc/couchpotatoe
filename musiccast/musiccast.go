@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sync"
 )
 
 type event map[string]interface{}
@@ -38,14 +39,13 @@ type playback struct {
 }
 
 type Device struct {
-	DeviceID               string `json:"device_id"`
-	DeviceModel            string `json:"model_name"`
-	NetworkName            string `json:"network_name"`
-	Status                 status
-	Playback               playback
+	id, model, name        string
+	status                 status
+	playback               playback
+	extendedControlBaseURL url.URL
 	httpClient             *http.Client
 	avTransport            *av1.AVTransport1
-	extendedControlBaseURL url.URL
+	mutex                  *sync.RWMutex
 }
 
 var availableDevices = make(map[string]*Device)
@@ -57,7 +57,7 @@ func Discover() (devices []*Device, err error) {
 		for _, maybeRoot := range maybeRootDevices {
 			d, err := NewDevice(maybeRoot)
 			if err == nil {
-				availableDevices[d.DeviceID] = d
+				availableDevices[d.id] = d
 				devices = append(devices, d)
 			}
 		}
@@ -109,12 +109,47 @@ func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
 		extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
 		avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
 		if err == nil {
-			device = &Device{"", "", "", status{}, playback{}, &http.Client{}, avTransportClients[0], extendedControlURL}
+			device = &Device{"", "", "", status{}, playback{}, extendedControlURL, &http.Client{}, avTransportClients[0], &sync.RWMutex{}}
 			err = device.sync()
 		}
 	}
 
 	return device, err
+}
+
+// GetDeviceID returns the device id.
+func (d *Device) GetDeviceID() string {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	return d.id
+}
+
+// GetDeviceModel returns the device model.
+func (d *Device) GetDeviceModel() string {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	return d.model
+}
+
+// GetNetworkName returns the device network name.
+func (d *Device) GetNetworkName() string {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	return d.name
+}
+
+// GetStatus returns the device status state.
+func (d *Device) GetStatus() status {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	return d.status
+}
+
+// GetPlayback returns the device playback state.
+func (d *Device) GetPlayback() playback {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	return d.playback
 }
 
 // Play begins playback of the current track.
@@ -184,8 +219,11 @@ func (d *Device) SetMute(mute bool) (err error) {
 func (d *Device) fetchDeviceInfo() (err error) {
 	resp, err := d.request("GET", "system/getDeviceInfo")
 	if err == nil {
-		defer resp.Body.Close()
-		err = json.NewDecoder(resp.Body).Decode(&d)
+		data, err := decodeResponse(resp)
+		if err == nil {
+			d.id = data["device_id"].(string)
+			d.model = data["model_name"].(string)
+		}
 	}
 
 	return err
@@ -194,8 +232,10 @@ func (d *Device) fetchDeviceInfo() (err error) {
 func (d *Device) fetchNetworkStatus() (err error) {
 	resp, err := d.request("GET", "system/getNetworkStatus")
 	if err == nil {
-		defer resp.Body.Close()
-		err = json.NewDecoder(resp.Body).Decode(&d)
+		data, err := decodeResponse(resp)
+		if err == nil {
+			d.name = data["network_name"].(string)
+		}
 	}
 
 	return err
@@ -205,7 +245,7 @@ func (d *Device) fetchStatus() (err error) {
 	resp, err := d.request("GET", "main/getStatus")
 	if err == nil {
 		defer resp.Body.Close()
-		err = json.NewDecoder(resp.Body).Decode(&d.Status)
+		err = json.NewDecoder(resp.Body).Decode(&d.status)
 	}
 
 	return err
@@ -215,7 +255,7 @@ func (d *Device) fetchPlayback() (err error) {
 	resp, err := d.request("GET", "netusb/getPlayInfo")
 	if err == nil {
 		defer resp.Body.Close()
-		err = json.NewDecoder(resp.Body).Decode(&d.Playback)
+		err = json.NewDecoder(resp.Body).Decode(&d.playback)
 	}
 
 	return err
@@ -237,8 +277,16 @@ func (d *Device) sync() (err error) {
 }
 
 func (d *Device) processEvent(e event) (err error) {
+	if d.id != e["device_id"] {
+		panic(fmt.Errorf("unmatched device id"))
+	} else {
+		delete(e, "device_id")
+	}
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
 	old := *d
-	delete(e, "device_id")
 	if main, ok := e["main"].(map[string]interface{}); ok {
 		if main["status_updated"] == true {
 			err = d.fetchStatus()
@@ -247,7 +295,7 @@ func (d *Device) processEvent(e event) (err error) {
 		if main["signal_info_updated"] == true {
 			delete(main, "signal_info_updated")
 		}
-		err = updateIn(&d.Status, main)
+		err = updateIn(&d.status, main)
 		delete(e, "main")
 	}
 
@@ -265,13 +313,13 @@ func (d *Device) processEvent(e event) (err error) {
 			}
 			delete(netusb, "play_queue")
 		}
-		err = updateIn(&d.Playback, netusb)
+		err = updateIn(&d.playback, netusb)
 		delete(e, "netusb")
 	}
 
 	diff := pretty.Diff(old, *d)
 	if len(diff) > 0 {
-		log.Println(d.DeviceID, "=>", diff)
+		log.Println(d.id, "=>", diff)
 	}
 
 	if len(e) > 0 {
