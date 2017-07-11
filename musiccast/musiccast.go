@@ -173,7 +173,7 @@ func (d *Device) Previous() (err error) {
 }
 
 // SetVolume sets the volume to the given value.
-func (d *Device) SetVolume(volume int) (err error) {
+func (d *Device) SetVolume(volume uint8) (err error) {
 	params := map[string]interface{}{"volume": volume}
 	resp, err := d.requestWithParams("GET", "main/setVolume", params)
 	if err == nil {
@@ -184,7 +184,7 @@ func (d *Device) SetVolume(volume int) (err error) {
 }
 
 // IncreaseVolume increases the volume by the given value.
-func (d *Device) IncreaseVolume(step int) (err error) {
+func (d *Device) IncreaseVolume(step uint8) (err error) {
 	params := map[string]interface{}{"volume": "up", "step": step}
 	resp, err := d.requestWithParams("GET", "main/setVolume", params)
 	if err == nil {
@@ -195,7 +195,7 @@ func (d *Device) IncreaseVolume(step int) (err error) {
 }
 
 // DecreaseVolume decreases the volume by the given value.
-func (d *Device) DecreaseVolume(step int) (err error) {
+func (d *Device) DecreaseVolume(step uint8) (err error) {
 	params := map[string]interface{}{"volume": "down", "step": step}
 	resp, err := d.requestWithParams("GET", "main/setVolume", params)
 	if err == nil {
