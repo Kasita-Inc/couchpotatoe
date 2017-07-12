@@ -66,8 +66,8 @@ func Discover() (devices []*Device, err error) {
 	return devices, err
 }
 
-// Listen listens and dispatches incoming YXC events.
-func Listen() {
+// ListenAndDispatch listens and dispatches incoming YXC events.
+func ListenAndDispatch() {
 	go func() {
 		listenAddr, err := net.ResolveUDPAddr("udp", ":41100")
 		if err != nil {

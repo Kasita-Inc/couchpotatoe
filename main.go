@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	musiccast.Listen()
+	musiccast.ListenAndDispatch()
 	devices, err := musiccast.Discover()
 	if err != nil {
 		log.Fatal(err)
