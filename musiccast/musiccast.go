@@ -3,6 +3,7 @@ package musiccast
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cskr/pubsub"
 	upnp "github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
 	"github.com/kr/pretty"
@@ -48,6 +49,7 @@ type Device struct {
 	mutex                  *sync.RWMutex
 }
 
+var broker = pubsub.New(1)
 var availableDevices = make(map[string]*Device)
 
 // Discover attempts to find MusicCast devices on the local network.
@@ -216,6 +218,11 @@ func (d *Device) SetMute(mute bool) (err error) {
 	return err
 }
 
+// Subscribe returns a channel for receiving update notifications from the device.
+func (d *Device) Subscribe() chan interface{} {
+	return broker.Sub(d.id)
+}
+
 func (d *Device) fetchDeviceInfo() (err error) {
 	resp, err := d.request("GET", "system/getDeviceInfo")
 	if err == nil {
@@ -319,6 +326,7 @@ func (d *Device) processEvent(e event) (err error) {
 
 	diff := pretty.Diff(old, *d)
 	if len(diff) > 0 {
+		broker.Pub(diff, d.id)
 		log.Println(d.id, "=>", diff)
 	}
 

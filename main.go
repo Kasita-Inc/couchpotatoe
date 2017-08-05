@@ -12,9 +12,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for _, d := range devices {
-		log.Println(d.GetDeviceID(), "is available")
-	}
+	device := devices[0]
 
-	select {}
+	log.Println(device.GetDeviceID(), "is available")
+	changes := device.Subscribe()
+	for {
+		log.Println(<-changes)
+	}
 }
