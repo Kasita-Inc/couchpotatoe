@@ -6,12 +6,11 @@ import (
 	"github.com/cskr/pubsub"
 	upnp "github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
-	"github.com/kr/pretty"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
+	"reflect"
 	"sync"
 )
 
@@ -324,10 +323,8 @@ func (d *Device) processEvent(e event) (err error) {
 		delete(e, "netusb")
 	}
 
-	diff := pretty.Diff(old, *d)
-	if len(diff) > 0 {
+	if diff := diffState(reflect.ValueOf(old), reflect.ValueOf(*d)); d != nil {
 		broker.Pub(diff, d.id)
-		log.Println(d.id, "=>", diff)
 	}
 
 	if len(e) > 0 {
@@ -383,6 +380,54 @@ func decodeResponse(resp *http.Response) (data map[string]interface{}, err error
 		}
 	}
 	return data, err
+}
+
+func diffState(av, bv reflect.Value) interface{} {
+	at := av.Type()
+	switch kind := at.Kind(); kind {
+	case reflect.Bool:
+		if a, b := av.Bool(), bv.Bool(); a != b {
+			return b
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if a, b := av.Int(), bv.Int(); a != b {
+			return b
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if a, b := av.Uint(), bv.Uint(); a != b {
+			return b
+		}
+	case reflect.Float32, reflect.Float64:
+		if a, b := av.Float(), bv.Float(); a != b {
+			return b
+		}
+	case reflect.Complex64, reflect.Complex128:
+		if a, b := av.Complex(), bv.Complex(); a != b {
+			return b
+		}
+	case reflect.String:
+		if a, b := av.String(), bv.String(); a != b {
+			return b
+		}
+	case reflect.Interface:
+		if v := diffState(av.Elem(), bv.Elem()); v != nil {
+			return bv.Interface()
+		}
+	case reflect.Struct:
+		d := make(event)
+		for i := 0; i < av.NumField(); i++ {
+			if v := diffState(av.Field(i), bv.Field(i)); v != nil {
+				d[at.Field(i).Tag.Get("json")] = v
+			}
+		}
+		if len(d) > 0 {
+			return d
+		}
+	default:
+		panic("unknown reflect Kind: " + kind.String())
+	}
+
+	return nil
 }
 
 func updateIn(field interface{}, update map[string]interface{}) (err error) {
