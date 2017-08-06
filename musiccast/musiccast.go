@@ -16,7 +16,7 @@ import (
 
 type event map[string]interface{}
 
-type status struct {
+type Status struct {
 	Input     string `json:"input"`
 	Power     string `json:"power"`
 	Sleep     uint8  `json:"sleep"`
@@ -25,7 +25,7 @@ type status struct {
 	MaxVolume uint8  `json:"max_volume"`
 }
 
-type playback struct {
+type Playback struct {
 	Input       string `json:"input"`
 	Playback    string `json:"playback"`
 	Repeat      string `json:"repeat"`
@@ -39,9 +39,11 @@ type playback struct {
 }
 
 type Device struct {
-	id, model, name        string
-	status                 status
-	playback               playback
+	id                     string   `json:"id"`
+	model                  string   `json:"model"`
+	name                   string   `json:"name"`
+	status                 Status   `json:"status"`
+	playback               Playback `json:"playback"`
 	extendedControlBaseURL url.URL
 	httpClient             *http.Client
 	avTransport            *av1.AVTransport1
@@ -110,7 +112,7 @@ func NewDevice(maybeRoot upnp.MaybeRootDevice) (device *Device, err error) {
 		extendedControlURL.Path = path.Join(extendedControlURL.Path, "YamahaExtendedControl", "v1")
 		avTransportClients, err := av1.NewAVTransport1ClientsFromRootDevice(maybeRoot.Root, maybeRoot.Location)
 		if err == nil {
-			device = &Device{"", "", "", status{}, playback{}, extendedControlURL, &http.Client{}, avTransportClients[0], &sync.RWMutex{}}
+			device = &Device{"", "", "", Status{}, Playback{}, extendedControlURL, &http.Client{}, avTransportClients[0], &sync.RWMutex{}}
 			err = device.sync()
 		}
 	}
@@ -140,14 +142,14 @@ func (d *Device) GetNetworkName() string {
 }
 
 // GetStatus returns the device status state.
-func (d *Device) GetStatus() status {
+func (d *Device) GetStatus() Status {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 	return d.status
 }
 
 // GetPlayback returns the device playback state.
-func (d *Device) GetPlayback() playback {
+func (d *Device) GetPlayback() Playback {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 	return d.playback
@@ -323,7 +325,7 @@ func (d *Device) processEvent(e event) (err error) {
 		delete(e, "netusb")
 	}
 
-	if diff := diffState(reflect.ValueOf(old), reflect.ValueOf(*d)); d != nil {
+	if diff := diffState(reflect.ValueOf(old), reflect.ValueOf(*d)); diff != nil {
 		broker.Pub(diff, d.id)
 	}
 
@@ -413,11 +415,15 @@ func diffState(av, bv reflect.Value) interface{} {
 		if v := diffState(av.Elem(), bv.Elem()); v != nil {
 			return bv.Interface()
 		}
+	case reflect.Ptr:
+		break
 	case reflect.Struct:
 		d := make(event)
 		for i := 0; i < av.NumField(); i++ {
 			if v := diffState(av.Field(i), bv.Field(i)); v != nil {
-				d[at.Field(i).Tag.Get("json")] = v
+				if k := at.Field(i).Tag.Get("json"); k != "" {
+					d[k] = v
+				}
 			}
 		}
 		if len(d) > 0 {
