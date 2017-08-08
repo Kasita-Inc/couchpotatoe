@@ -1,22 +1,27 @@
 package main
 
 import (
-	"github.com/redrabbit/couchpotatoe/musiccast"
+	"github.com/redrabbit/couchpotatoe/loxone"
 	"log"
 )
 
 func main() {
-	musiccast.ListenAndDispatch()
-	devices, err := musiccast.Discover()
+	conn, err := loxone.Connect()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	device := devices[0]
-
-	log.Println(device.GetDeviceID(), "is available")
-	changes := device.Subscribe()
-	for {
-		log.Println(<-changes)
+	err = conn.Authenticate("admin", "admin")
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	app, err := conn.LoxAPP3()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println(app)
+
+	select {}
 }
