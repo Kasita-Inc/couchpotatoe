@@ -165,6 +165,11 @@ func (d *Device) Pause() (err error) {
 	return d.setPlayback("pause")
 }
 
+// TogglePlayPause toggles playback state from "play" to "pause" and vice versa.
+func (d *Device) TogglePlayPause() (err error) {
+	return d.setPlayback("play_pause")
+}
+
 // Next plays the next track.
 func (d *Device) Next() (err error) {
 	return d.setPlayback("next")
