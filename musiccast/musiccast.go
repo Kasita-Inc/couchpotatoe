@@ -229,6 +229,19 @@ func (d *Device) Subscribe() chan interface{} {
 	return broker.Sub(d.id)
 }
 
+func (d *Device) MarshalJSON() ([]byte, error) {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+	// we should do this dynamically
+	return json.Marshal(&struct {
+		ID       string   `json:"id"`
+		Model    string   `json:"model"`
+		name     string   `json:"name"`
+		Status   Status   `json:"status"`
+		Playback Playback `json:"playback"`
+	}{d.id, d.model, d.name, d.status, d.playback})
+}
+
 func (d *Device) fetchDeviceInfo() (err error) {
 	resp, err := d.request("GET", "system/getDeviceInfo")
 	if err == nil {
