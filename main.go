@@ -6,22 +6,31 @@ import (
 )
 
 func main() {
-	conn, err := loxone.Connect()
+	ws, err := loxone.Connect("172.16.2.59")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = conn.Authenticate("admin", "admin")
+	log.Println("connected")
+
+	err = ws.Authenticate("admin", "admin")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	app, err := conn.LoxAPP3()
+	log.Println("authenticated")
+
+	app3, err := ws.LoxAPP3()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println(app)
+	log.Println("app3 last modified:", app3["lastModified"])
+
+	err = ws.EnableStatusUpdate()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	select {}
 }
