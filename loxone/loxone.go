@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
+	gouuid "github.com/satori/go.uuid"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -111,8 +113,13 @@ func (socket *WebSocket) processIncomingMessages() {
 			socket.queue <- payload{cmd, err, val}
 		case binaryFile:
 			socket.queue <- payload{"", nil, msgData}
+		case valueEvent:
+			decodeValueEventTable(msgData)
+		case textEvent:
+			decodeTextEventTable(msgData)
 		default:
-			panic(fmt.Errorf("unhandled message type %d", msgType))
+			fmt.Println("ignoring message type", msgType)
+			//panic(fmt.Errorf("unhandled message type %d", msgType))
 		}
 	}
 }
@@ -177,4 +184,56 @@ func decodeMsgText(msg []byte) (cmd string, val interface{}, err error) {
 		}
 	}
 	return cmd, val, err
+}
+
+func decodeValueEvent(msg []byte) (uuid gouuid.UUID, val float64, err error) {
+	if len(msg) != 24 {
+		err = fmt.Errorf("invalid value event message length")
+	} else {
+		uuid, err = gouuid.FromBytes(msg[:16])
+		if err == nil {
+			val = math.Float64frombits(binary.LittleEndian.Uint64(msg[16:]))
+		}
+	}
+	return uuid, val, err
+}
+
+func decodeValueEventTable(msg []byte) (table map[gouuid.UUID]float64, err error) {
+	table = make(map[gouuid.UUID]float64)
+	for i := 0; i < len(msg); i += 24 {
+		uuid, val, err := decodeValueEvent(msg[i : i+24])
+		if err != nil {
+			break
+		}
+		table[uuid] = val
+	}
+
+	return table, err
+}
+
+func decodeTextEvent(msg []byte) (uuid, uuidIcon gouuid.UUID, text string, err error) {
+	uuid, err = gouuid.FromBytes(msg[:16])
+	if err == nil {
+		uuidIcon, err = gouuid.FromBytes(msg[16:32])
+		if err == nil {
+			textLength := binary.LittleEndian.Uint32(msg[32:36])
+			text = string(msg[36 : 36+textLength])
+		}
+	}
+
+	return uuid, uuidIcon, text, err
+}
+
+func decodeTextEventTable(msg []byte) (table map[gouuid.UUID]string, err error) {
+	table = make(map[gouuid.UUID]string)
+	for i := 0; i < len(msg); {
+		uuid, _, text, err := decodeTextEvent(msg[i:])
+		textLength := len(text)
+		if err != nil {
+			break
+		}
+		table[uuid] = text
+		i += textLength + textLength%4 + 36
+	}
+	return table, err
 }
