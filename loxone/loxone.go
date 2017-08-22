@@ -1,6 +1,7 @@
 package loxone
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/binary"
@@ -9,7 +10,6 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	gouuid "github.com/satori/go.uuid"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,6 +36,26 @@ type payload struct {
 type WebSocket struct {
 	conn  *websocket.Conn
 	queue chan payload
+}
+
+type DayTimerEntry struct {
+	mode, from, to, needActivate int32
+	val                          float64
+}
+
+type DayTimerEvent struct {
+	defaultVal float64
+	entries    []DayTimerEntry
+}
+
+type WeatherEntry struct {
+	timestamp, weatherType, windDirection, solarRadiation, relativeHumidity                  int32
+	temperature, perceivedTemperature, dewPoint, pricipitation, windSpeed, barometicPressure float64
+}
+
+type WeatherEvent struct {
+	lastUpdate uint32
+	entries    []WeatherEntry
 }
 
 // Connect connects the WebSocket to the Miniserver.
@@ -117,6 +137,10 @@ func (socket *WebSocket) processIncomingMessages() {
 			decodeValueEventTable(msgData)
 		case textEvent:
 			decodeTextEventTable(msgData)
+		case daytimerEvent:
+			decodeDaytimerEventTable(msgData)
+		case weatherEvent:
+			decodeWeatherEventTable(msgData)
 		default:
 			fmt.Println("ignoring message type", msgType)
 			//panic(fmt.Errorf("unhandled message type %d", msgType))
@@ -192,7 +216,7 @@ func decodeValueEvent(msg []byte) (uuid gouuid.UUID, val float64, err error) {
 	} else {
 		uuid, err = gouuid.FromBytes(msg[:16])
 		if err == nil {
-			val = math.Float64frombits(binary.LittleEndian.Uint64(msg[16:]))
+			err = binary.Read(bytes.NewReader(msg[16:24]), binary.LittleEndian, &val)
 		}
 	}
 	return uuid, val, err
@@ -207,7 +231,6 @@ func decodeValueEventTable(msg []byte) (table map[gouuid.UUID]float64, err error
 		}
 		table[uuid] = val
 	}
-
 	return table, err
 }
 
@@ -220,7 +243,6 @@ func decodeTextEvent(msg []byte) (uuid, uuidIcon gouuid.UUID, text string, err e
 			text = string(msg[36 : 36+textLength])
 		}
 	}
-
 	return uuid, uuidIcon, text, err
 }
 
@@ -228,12 +250,126 @@ func decodeTextEventTable(msg []byte) (table map[gouuid.UUID]string, err error) 
 	table = make(map[gouuid.UUID]string)
 	for i := 0; i < len(msg); {
 		uuid, _, text, err := decodeTextEvent(msg[i:])
-		textLength := len(text)
 		if err != nil {
 			break
 		}
 		table[uuid] = text
+		textLength := len(text)
 		i += textLength + textLength%4 + 36
+	}
+	return table, err
+}
+
+func decodeDaytimerEntry(msg []byte) (entry DayTimerEntry, err error) {
+	if len(msg) != 24 {
+		err = fmt.Errorf("invalid daytimer entry message length")
+	} else {
+		if err = binary.Read(bytes.NewReader(msg[0:4]), binary.LittleEndian, &entry.mode); err == nil {
+			if err = binary.Read(bytes.NewReader(msg[4:8]), binary.LittleEndian, &entry.from); err == nil {
+				if err = binary.Read(bytes.NewReader(msg[8:12]), binary.LittleEndian, &entry.to); err == nil {
+					if err = binary.Read(bytes.NewReader(msg[12:16]), binary.LittleEndian, &entry.needActivate); err == nil {
+						err = binary.Read(bytes.NewReader(msg[16:24]), binary.LittleEndian, &entry.val)
+					}
+				}
+			}
+		}
+	}
+	return entry, err
+}
+
+func decodeDaytimerEventTable(msg []byte) (table map[gouuid.UUID]DayTimerEvent, err error) {
+	table = make(map[gouuid.UUID]DayTimerEvent)
+	for i := 0; i < len(msg); {
+		uuid, err := gouuid.FromBytes(msg[i : i+16])
+		if err != nil {
+			break
+		}
+		var defaultVal float64
+		if err = binary.Read(bytes.NewReader(msg[i+16:i+24]), binary.LittleEndian, &defaultVal); err != nil {
+			break
+		}
+		var nrEntries int32
+		if err = binary.Read(bytes.NewReader(msg[i+24:i+28]), binary.LittleEndian, &nrEntries); err != nil {
+			break
+		}
+		entries := make([]DayTimerEntry, nrEntries)
+		i += 28
+		max := i + int(nrEntries)*24
+		for i < max {
+			entry, err := decodeDaytimerEntry(msg[i : i+24])
+			if err != nil {
+				break
+			}
+			entries = append(entries, entry)
+			i += 24
+		}
+		if err != nil {
+			break
+		}
+		table[uuid] = DayTimerEvent{defaultVal, entries}
+	}
+	return table, err
+}
+
+func decodeWeatherEntry(msg []byte) (entry WeatherEntry, err error) {
+	if len(msg) != 68 {
+		err = fmt.Errorf("invalid weather entry message length")
+	} else {
+		if err = binary.Read(bytes.NewReader(msg[:4]), binary.LittleEndian, &entry.timestamp); err == nil {
+			if err = binary.Read(bytes.NewReader(msg[4:8]), binary.LittleEndian, &entry.weatherType); err == nil {
+				if err = binary.Read(bytes.NewReader(msg[8:12]), binary.LittleEndian, &entry.windDirection); err == nil {
+					if err = binary.Read(bytes.NewReader(msg[12:16]), binary.LittleEndian, &entry.solarRadiation); err == nil {
+						if err = binary.Read(bytes.NewReader(msg[16:20]), binary.LittleEndian, &entry.relativeHumidity); err == nil {
+							if err = binary.Read(bytes.NewReader(msg[20:28]), binary.LittleEndian, &entry.temperature); err == nil {
+								if err = binary.Read(bytes.NewReader(msg[28:36]), binary.LittleEndian, &entry.perceivedTemperature); err == nil {
+									if err = binary.Read(bytes.NewReader(msg[36:44]), binary.LittleEndian, &entry.dewPoint); err == nil {
+										if err = binary.Read(bytes.NewReader(msg[44:52]), binary.LittleEndian, &entry.pricipitation); err == nil {
+											if err = binary.Read(bytes.NewReader(msg[52:60]), binary.LittleEndian, &entry.windSpeed); err == nil {
+												err = binary.Read(bytes.NewReader(msg[60:68]), binary.LittleEndian, &entry.barometicPressure)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return entry, err
+}
+
+func decodeWeatherEventTable(msg []byte) (table map[gouuid.UUID]WeatherEvent, err error) {
+	table = make(map[gouuid.UUID]WeatherEvent)
+	for i := 0; i < len(msg); {
+		uuid, err := gouuid.FromBytes(msg[i : i+16])
+		if err != nil {
+			break
+		}
+		var lastUpdate uint32
+		if err = binary.Read(bytes.NewReader(msg[i+16:i+20]), binary.LittleEndian, &lastUpdate); err != nil {
+			break
+		}
+		var nrEntries int32
+		if err = binary.Read(bytes.NewReader(msg[i+20:i+24]), binary.LittleEndian, &nrEntries); err != nil {
+			break
+		}
+		entries := make([]WeatherEntry, nrEntries)
+		i += 24
+		max := i + int(nrEntries)*68
+		for i < max {
+			entry, err := decodeWeatherEntry(msg[i : i+68])
+			if err != nil {
+				break
+			}
+			entries = append(entries, entry)
+			i += 68
+		}
+		if err != nil {
+			break
+		}
+		table[uuid] = WeatherEvent{lastUpdate, entries}
 	}
 	return table, err
 }
