@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/cskr/pubsub"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"net/url"
@@ -59,6 +60,8 @@ type WeatherEvent struct {
 	entries    []WeatherEntry
 }
 
+var broker = pubsub.New(1)
+
 // Connect connects the WebSocket to the Miniserver.
 func Connect(host string) (socket *WebSocket, err error) {
 	websocketURL := url.URL{Scheme: "ws", Host: host, Path: "/ws/rfc6455"}
@@ -102,6 +105,11 @@ func (socket *WebSocket) EnableStatusUpdate() (err error) {
 	return err
 }
 
+// Subscribe returns a channel for receiving update notifications for a given uuid.
+func (socket *WebSocket) Subscribe(uuid UUID) chan interface{} {
+	return broker.Sub(uuid)
+}
+
 func (socket *WebSocket) call(cmd string) (val interface{}, err error) {
 	err = socket.conn.WriteMessage(websocket.TextMessage, []byte(cmd))
 	if err == nil {
@@ -135,17 +143,39 @@ func (socket *WebSocket) processIncomingMessages() {
 		case binaryFile:
 			socket.queue <- payload{"", nil, msgData}
 		case valueEvent:
-			decodeValueEventTable(msgData)
+			if t, err := decodeValueEventTable(msgData); err == nil {
+				socket.publishEventTable(t, msgType)
+			} else {
+				panic(err)
+			}
 		case textEvent:
-			decodeTextEventTable(msgData)
+			if t, err := decodeTextEventTable(msgData); err == nil {
+				socket.publishEventTable(t, msgType)
+			} else {
+				panic(err)
+			}
 		case daytimerEvent:
-			decodeDaytimerEventTable(msgData)
+			if t, err := decodeDaytimerEventTable(msgData); err == nil {
+				socket.publishEventTable(t, msgType)
+			} else {
+				panic(err)
+			}
 		case weatherEvent:
-			decodeWeatherEventTable(msgData)
+			if t, err := decodeWeatherEventTable(msgData); err == nil {
+				socket.publishEventTable(t, msgType)
+			} else {
+				panic(err)
+			}
 		default:
 			fmt.Println("ignoring message type", msgType)
 			//panic(fmt.Errorf("unhandled message type %d", msgType))
 		}
+	}
+}
+
+func (socket *WebSocket) publishEventTable(events map[UUID]interface{}, eventType uint8) {
+	for k, v := range events {
+		broker.Pub(v, k)
 	}
 }
 
@@ -243,8 +273,8 @@ func decodeValueEvent(msg []byte) (uuid UUID, val float64, err error) {
 	return uuid, val, err
 }
 
-func decodeValueEventTable(msg []byte) (table map[UUID]float64, err error) {
-	table = make(map[UUID]float64)
+func decodeValueEventTable(msg []byte) (table map[UUID]interface{}, err error) {
+	table = make(map[UUID]interface{})
 	for i := 0; i < len(msg); i += 24 {
 		uuid, val, err := decodeValueEvent(msg[i : i+24])
 		if err != nil {
@@ -267,8 +297,8 @@ func decodeTextEvent(msg []byte) (uuid, uuidIcon UUID, text string, err error) {
 	return uuid, uuidIcon, text, err
 }
 
-func decodeTextEventTable(msg []byte) (table map[UUID]string, err error) {
-	table = make(map[UUID]string)
+func decodeTextEventTable(msg []byte) (table map[UUID]interface{}, err error) {
+	table = make(map[UUID]interface{})
 	for i := 0; i < len(msg); {
 		uuid, _, text, err := decodeTextEvent(msg[i:])
 		if err != nil {
@@ -298,8 +328,8 @@ func decodeDaytimerEntry(msg []byte) (entry DayTimerEntry, err error) {
 	return entry, err
 }
 
-func decodeDaytimerEventTable(msg []byte) (table map[UUID]DayTimerEvent, err error) {
-	table = make(map[UUID]DayTimerEvent)
+func decodeDaytimerEventTable(msg []byte) (table map[UUID]interface{}, err error) {
+	table = make(map[UUID]interface{})
 	for i := 0; i < len(msg); {
 		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {
@@ -361,8 +391,8 @@ func decodeWeatherEntry(msg []byte) (entry WeatherEntry, err error) {
 	return entry, err
 }
 
-func decodeWeatherEventTable(msg []byte) (table map[UUID]WeatherEvent, err error) {
-	table = make(map[UUID]WeatherEvent)
+func decodeWeatherEventTable(msg []byte) (table map[UUID]interface{}, err error) {
+	table = make(map[UUID]interface{})
 	for i := 0; i < len(msg); {
 		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {

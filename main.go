@@ -27,10 +27,14 @@ func main() {
 
 	log.Println("app3 last modified:", app3["lastModified"])
 
+	ch := ws.Subscribe("100e9098-00e0-381e-ffffbfc5a4a28050")
+
 	err = ws.EnableStatusUpdate()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	select {}
+	for {
+		log.Println(<-ch)
+	}
 }
