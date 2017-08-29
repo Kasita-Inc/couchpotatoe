@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
-	gouuid "github.com/satori/go.uuid"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -37,6 +36,8 @@ type WebSocket struct {
 	conn  *websocket.Conn
 	queue chan payload
 }
+
+type UUID = string
 
 type DayTimerEntry struct {
 	mode, from, to, needActivate int32
@@ -210,11 +211,31 @@ func decodeMsgText(msg []byte) (cmd string, val interface{}, err error) {
 	return cmd, val, err
 }
 
-func decodeValueEvent(msg []byte) (uuid gouuid.UUID, val float64, err error) {
-	if len(msg) != 24 {
-		err = fmt.Errorf("invalid value event message length")
+func decodeUUID(msg []byte) (uuid UUID, err error) {
+	if len(msg) != 16 {
+		err = fmt.Errorf("invalid uuid length")
 	} else {
-		uuid, err = gouuid.FromBytes(msg[:16])
+		var data1 uint32
+		var data2, data3 uint16
+		var data4 [8]byte
+		if err = binary.Read(bytes.NewReader(msg[0:4]), binary.LittleEndian, &data1); err == nil {
+			if err = binary.Read(bytes.NewReader(msg[4:6]), binary.LittleEndian, &data2); err == nil {
+				if err = binary.Read(bytes.NewReader(msg[6:8]), binary.LittleEndian, &data3); err == nil {
+					if err = binary.Read(bytes.NewReader(msg[8:16]), binary.LittleEndian, &data4); err == nil {
+						uuid = fmt.Sprintf("%08x-%04x-%04x-%02x%02x%02x%02x%02x%02x%02x%02x", data1, data2, data3, data4[0], data4[1], data4[2], data4[3], data4[4], data4[5], data4[6], data4[7])
+					}
+				}
+			}
+		}
+	}
+	return uuid, err
+}
+
+func decodeValueEvent(msg []byte) (uuid UUID, val float64, err error) {
+	if len(msg) != 24 {
+		err = fmt.Errorf("invalid value event length")
+	} else {
+		uuid, err = decodeUUID(msg[:16])
 		if err == nil {
 			err = binary.Read(bytes.NewReader(msg[16:24]), binary.LittleEndian, &val)
 		}
@@ -222,8 +243,8 @@ func decodeValueEvent(msg []byte) (uuid gouuid.UUID, val float64, err error) {
 	return uuid, val, err
 }
 
-func decodeValueEventTable(msg []byte) (table map[gouuid.UUID]float64, err error) {
-	table = make(map[gouuid.UUID]float64)
+func decodeValueEventTable(msg []byte) (table map[UUID]float64, err error) {
+	table = make(map[UUID]float64)
 	for i := 0; i < len(msg); i += 24 {
 		uuid, val, err := decodeValueEvent(msg[i : i+24])
 		if err != nil {
@@ -234,10 +255,10 @@ func decodeValueEventTable(msg []byte) (table map[gouuid.UUID]float64, err error
 	return table, err
 }
 
-func decodeTextEvent(msg []byte) (uuid, uuidIcon gouuid.UUID, text string, err error) {
-	uuid, err = gouuid.FromBytes(msg[:16])
+func decodeTextEvent(msg []byte) (uuid, uuidIcon UUID, text string, err error) {
+	uuid, err = decodeUUID(msg[:16])
 	if err == nil {
-		uuidIcon, err = gouuid.FromBytes(msg[16:32])
+		uuidIcon, err = decodeUUID(msg[16:32])
 		if err == nil {
 			textLength := binary.LittleEndian.Uint32(msg[32:36])
 			text = string(msg[36 : 36+textLength])
@@ -246,8 +267,8 @@ func decodeTextEvent(msg []byte) (uuid, uuidIcon gouuid.UUID, text string, err e
 	return uuid, uuidIcon, text, err
 }
 
-func decodeTextEventTable(msg []byte) (table map[gouuid.UUID]string, err error) {
-	table = make(map[gouuid.UUID]string)
+func decodeTextEventTable(msg []byte) (table map[UUID]string, err error) {
+	table = make(map[UUID]string)
 	for i := 0; i < len(msg); {
 		uuid, _, text, err := decodeTextEvent(msg[i:])
 		if err != nil {
@@ -262,7 +283,7 @@ func decodeTextEventTable(msg []byte) (table map[gouuid.UUID]string, err error) 
 
 func decodeDaytimerEntry(msg []byte) (entry DayTimerEntry, err error) {
 	if len(msg) != 24 {
-		err = fmt.Errorf("invalid daytimer entry message length")
+		err = fmt.Errorf("invalid daytimer entry length")
 	} else {
 		if err = binary.Read(bytes.NewReader(msg[0:4]), binary.LittleEndian, &entry.mode); err == nil {
 			if err = binary.Read(bytes.NewReader(msg[4:8]), binary.LittleEndian, &entry.from); err == nil {
@@ -277,10 +298,10 @@ func decodeDaytimerEntry(msg []byte) (entry DayTimerEntry, err error) {
 	return entry, err
 }
 
-func decodeDaytimerEventTable(msg []byte) (table map[gouuid.UUID]DayTimerEvent, err error) {
-	table = make(map[gouuid.UUID]DayTimerEvent)
+func decodeDaytimerEventTable(msg []byte) (table map[UUID]DayTimerEvent, err error) {
+	table = make(map[UUID]DayTimerEvent)
 	for i := 0; i < len(msg); {
-		uuid, err := gouuid.FromBytes(msg[i : i+16])
+		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {
 			break
 		}
@@ -313,7 +334,7 @@ func decodeDaytimerEventTable(msg []byte) (table map[gouuid.UUID]DayTimerEvent, 
 
 func decodeWeatherEntry(msg []byte) (entry WeatherEntry, err error) {
 	if len(msg) != 68 {
-		err = fmt.Errorf("invalid weather entry message length")
+		err = fmt.Errorf("invalid weather entry length")
 	} else {
 		if err = binary.Read(bytes.NewReader(msg[:4]), binary.LittleEndian, &entry.timestamp); err == nil {
 			if err = binary.Read(bytes.NewReader(msg[4:8]), binary.LittleEndian, &entry.weatherType); err == nil {
@@ -340,10 +361,10 @@ func decodeWeatherEntry(msg []byte) (entry WeatherEntry, err error) {
 	return entry, err
 }
 
-func decodeWeatherEventTable(msg []byte) (table map[gouuid.UUID]WeatherEvent, err error) {
-	table = make(map[gouuid.UUID]WeatherEvent)
+func decodeWeatherEventTable(msg []byte) (table map[UUID]WeatherEvent, err error) {
+	table = make(map[UUID]WeatherEvent)
 	for i := 0; i < len(msg); {
-		uuid, err := gouuid.FromBytes(msg[i : i+16])
+		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {
 			break
 		}
