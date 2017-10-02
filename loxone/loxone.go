@@ -167,8 +167,7 @@ func (socket *WebSocket) processIncomingMessages() {
 				panic(err)
 			}
 		default:
-			fmt.Println("ignoring message type", msgType)
-			//panic(fmt.Errorf("unhandled message type %d", msgType))
+			panic(fmt.Errorf("unhandled message type %d", msgType))
 		}
 	}
 }
@@ -278,7 +277,7 @@ func decodeValueEventTable(msg []byte) (table map[UUID]interface{}, err error) {
 	for i := 0; i < len(msg); i += 24 {
 		uuid, val, err := decodeValueEvent(msg[i : i+24])
 		if err != nil {
-			break
+			return table, err
 		}
 		table[uuid] = val
 	}
@@ -291,7 +290,12 @@ func decodeTextEvent(msg []byte) (uuid, uuidIcon UUID, text string, err error) {
 		uuidIcon, err = decodeUUID(msg[16:32])
 		if err == nil {
 			textLength := binary.LittleEndian.Uint32(msg[32:36])
-			text = string(msg[36 : 36+textLength])
+			if int(textLength) > len(msg)-36 {
+				text = string(msg[36:])
+				err = fmt.Errorf("invalid text event with length %d", textLength)
+			} else {
+				text = string(msg[36 : 36+textLength])
+			}
 		}
 	}
 	return uuid, uuidIcon, text, err
@@ -302,7 +306,7 @@ func decodeTextEventTable(msg []byte) (table map[UUID]interface{}, err error) {
 	for i := 0; i < len(msg); {
 		uuid, _, text, err := decodeTextEvent(msg[i:])
 		if err != nil {
-			break
+			return table, err
 		}
 		table[uuid] = text
 		textLength := len(text)
@@ -333,15 +337,15 @@ func decodeDaytimerEventTable(msg []byte) (table map[UUID]interface{}, err error
 	for i := 0; i < len(msg); {
 		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {
-			break
+			return table, err
 		}
 		var defaultVal float64
 		if err = binary.Read(bytes.NewReader(msg[i+16:i+24]), binary.LittleEndian, &defaultVal); err != nil {
-			break
+			return table, err
 		}
 		var nrEntries int32
 		if err = binary.Read(bytes.NewReader(msg[i+24:i+28]), binary.LittleEndian, &nrEntries); err != nil {
-			break
+			return table, err
 		}
 		entries := make([]DayTimerEntry, nrEntries)
 		i += 28
@@ -349,13 +353,13 @@ func decodeDaytimerEventTable(msg []byte) (table map[UUID]interface{}, err error
 		for i < max {
 			entry, err := decodeDaytimerEntry(msg[i : i+24])
 			if err != nil {
-				break
+				return table, err
 			}
 			entries = append(entries, entry)
 			i += 24
 		}
 		if err != nil {
-			break
+			return table, err
 		}
 		table[uuid] = DayTimerEvent{defaultVal, entries}
 	}
@@ -396,15 +400,15 @@ func decodeWeatherEventTable(msg []byte) (table map[UUID]interface{}, err error)
 	for i := 0; i < len(msg); {
 		uuid, err := decodeUUID(msg[i : i+16])
 		if err != nil {
-			break
+			return table, err
 		}
 		var lastUpdate uint32
 		if err = binary.Read(bytes.NewReader(msg[i+16:i+20]), binary.LittleEndian, &lastUpdate); err != nil {
-			break
+			return table, err
 		}
 		var nrEntries int32
 		if err = binary.Read(bytes.NewReader(msg[i+20:i+24]), binary.LittleEndian, &nrEntries); err != nil {
-			break
+			return table, err
 		}
 		entries := make([]WeatherEntry, nrEntries)
 		i += 24
@@ -412,13 +416,13 @@ func decodeWeatherEventTable(msg []byte) (table map[UUID]interface{}, err error)
 		for i < max {
 			entry, err := decodeWeatherEntry(msg[i : i+68])
 			if err != nil {
-				break
+				return table, err
 			}
 			entries = append(entries, entry)
 			i += 68
 		}
 		if err != nil {
-			break
+			return table, err
 		}
 		table[uuid] = WeatherEvent{lastUpdate, entries}
 	}
