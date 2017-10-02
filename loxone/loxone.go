@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/cskr/pubsub"
 	"github.com/gorilla/websocket"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -130,14 +131,14 @@ func (socket *WebSocket) processIncomingMessages() {
 	for {
 		msgType, msgData, err := socket.readMessage()
 		if err != nil {
-			panic(err)
+			log.Println(err)
 		}
 
 		switch msgType {
 		case textMessage:
 			cmd, val, err := decodeMsgText(msgData)
 			if err != nil {
-				panic(err)
+				log.Println(err)
 			}
 			socket.queue <- payload{cmd, err, val}
 		case binaryFile:
@@ -146,28 +147,28 @@ func (socket *WebSocket) processIncomingMessages() {
 			if t, err := decodeValueEventTable(msgData); err == nil {
 				socket.publishEventTable(t, msgType)
 			} else {
-				panic(err)
+				log.Println(err)
 			}
 		case textEvent:
 			if t, err := decodeTextEventTable(msgData); err == nil {
 				socket.publishEventTable(t, msgType)
 			} else {
-				panic(err)
+				log.Println(err)
 			}
 		case daytimerEvent:
 			if t, err := decodeDaytimerEventTable(msgData); err == nil {
 				socket.publishEventTable(t, msgType)
 			} else {
-				panic(err)
+				log.Println(err)
 			}
 		case weatherEvent:
 			if t, err := decodeWeatherEventTable(msgData); err == nil {
 				socket.publishEventTable(t, msgType)
 			} else {
-				panic(err)
+				log.Println(err)
 			}
 		default:
-			panic(fmt.Errorf("unhandled message type %d", msgType))
+			log.Println(fmt.Errorf("unhandled message type %d", msgType))
 		}
 	}
 }
