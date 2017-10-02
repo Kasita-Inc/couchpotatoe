@@ -13,7 +13,7 @@ func main() {
 
 	log.Println("connected")
 
-	err = ws.Authenticate("admin", "admin")
+	err = ws.Authenticate("admin", "TdtuPMJjZTTutWetWMoPXy9V")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func main() {
 
 	log.Println("app3 last modified:", app3["lastModified"])
 
-	ch := ws.Subscribe("100e9098-00e0-381e-ffffbfc5a4a28050")
+	ch := ws.Subscribe("106e6773-02a9-e641-ffff20df2fc4e78a")
 
 	err = ws.EnableStatusUpdate()
 	if err != nil {
