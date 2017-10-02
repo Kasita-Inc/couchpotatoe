@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/brutella/hc"
+	"github.com/brutella/hc/accessory"
 	"github.com/redrabbit/couchpotatoe/loxone"
 	"log"
 )
@@ -34,7 +36,28 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for {
-		log.Println(<-ch)
+	info := accessory.Info{
+		Name: "Bett (links)",
 	}
+
+	acc := accessory.NewSwitch(info)
+
+	go func() {
+		for {
+			val := <-ch
+			acc.Switch.On.SetValue(val.(float64) != 0)
+		}
+	}()
+
+	config := hc.Config{Pin: "00102003"}
+	t, err := hc.NewIPTransport(config, acc.Accessory)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hc.OnTermination(func() {
+		t.Stop()
+	})
+
+	t.Start()
 }
