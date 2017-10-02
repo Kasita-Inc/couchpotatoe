@@ -100,6 +100,11 @@ func (socket *WebSocket) LoxAPP3() (app3 map[string]interface{}, err error) {
 	return app3, err
 }
 
+// ControlCommand sets the given control `uuid` to the given `state`.
+func (socket *WebSocket) ControlCommand(uuid string, state interface{}) (val interface{}, err error) {
+	return socket.call(fmt.Sprintf("jdev/sps/io/%s/%s", uuid, fmt.Sprint(state)))
+}
+
 // EnableStatusUpdate enables the Miniserver to push status update notifications.
 func (socket *WebSocket) EnableStatusUpdate() (err error) {
 	_, err = socket.call("jdev/sps/enablebinstatusupdate")
@@ -227,11 +232,12 @@ func decodeMsgText(msg []byte) (cmd string, val interface{}, err error) {
 	var resp map[string]interface{}
 	err = json.Unmarshal(msg, &resp)
 	if err == nil {
+		var code int
 		data := resp["LL"].(map[string]interface{})
-		code, err := strconv.Atoi(data["Code"].(string))
+		code, err = strconv.Atoi(data["Code"].(string))
 		if err == nil {
 			if code != 200 {
-				err = fmt.Errorf("invalid response status code")
+				err = fmt.Errorf("invalid response status code %d", code)
 			} else {
 				cmd = data["control"].(string)
 				val = data["value"]
