@@ -42,6 +42,14 @@ func main() {
 
 	acc := accessory.NewSwitch(info)
 
+	acc.Switch.On.OnValueRemoteUpdate(func(power bool) {
+		if power == true {
+			ws.ControlCommand("106e6773-02a9-e657-ffff403fb0c34b9e/AI2", "on")
+		} else {
+			ws.ControlCommand("106e6773-02a9-e657-ffff403fb0c34b9e/AI2", "off")
+		}
+	})
+
 	go func() {
 		for {
 			val := <-ch
