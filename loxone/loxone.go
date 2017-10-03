@@ -298,7 +298,7 @@ func decodeTextEvent(msg []byte) (uuid, uuidIcon UUID, text string, err error) {
 		if err == nil {
 			textLength := binary.LittleEndian.Uint32(msg[32:36])
 			if int(textLength) > len(msg)-36 {
-				text = string(msg[36:])
+				text = string(msg)
 				err = fmt.Errorf("invalid text event with length %d", textLength)
 			} else {
 				text = string(msg[36 : 36+textLength])
