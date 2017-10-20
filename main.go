@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/almightycouch/couchpotatoe/loxone"
 	"github.com/brutella/hc"
 	"github.com/brutella/hc/accessory"
-	"github.com/redrabbit/couchpotatoe/loxone"
 	"log"
 )
 
