@@ -39,7 +39,7 @@ type WebSocket struct {
 	queue chan payload
 }
 
-type UUID = string
+type UUID string
 
 type DayTimerEntry struct {
 	mode, from, to, needActivate int32
@@ -113,7 +113,7 @@ func (socket *WebSocket) EnableStatusUpdate() (err error) {
 
 // Subscribe returns a channel for receiving update notifications for a given uuid.
 func (socket *WebSocket) Subscribe(uuid UUID) chan interface{} {
-	return broker.Sub(uuid)
+	return broker.Sub(string(uuid))
 }
 
 func (socket *WebSocket) call(cmd string) (val interface{}, err error) {
@@ -180,7 +180,7 @@ func (socket *WebSocket) processIncomingMessages() {
 
 func (socket *WebSocket) publishEventTable(events map[UUID]interface{}, eventType uint8) {
 	for k, v := range events {
-		broker.Pub(v, k)
+		broker.Pub(v, string(k))
 	}
 }
 
@@ -258,7 +258,7 @@ func decodeUUID(msg []byte) (uuid UUID, err error) {
 			if err = binary.Read(bytes.NewReader(msg[4:6]), binary.LittleEndian, &data2); err == nil {
 				if err = binary.Read(bytes.NewReader(msg[6:8]), binary.LittleEndian, &data3); err == nil {
 					if err = binary.Read(bytes.NewReader(msg[8:16]), binary.LittleEndian, &data4); err == nil {
-						uuid = fmt.Sprintf("%08x-%04x-%04x-%02x%02x%02x%02x%02x%02x%02x%02x", data1, data2, data3, data4[0], data4[1], data4[2], data4[3], data4[4], data4[5], data4[6], data4[7])
+						uuid = UUID(fmt.Sprintf("%08x-%04x-%04x-%02x%02x%02x%02x%02x%02x%02x%02x", data1, data2, data3, data4[0], data4[1], data4[2], data4[3], data4[4], data4[5], data4[6], data4[7]))
 					}
 				}
 			}
