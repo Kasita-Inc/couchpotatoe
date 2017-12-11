@@ -116,6 +116,11 @@ func (socket *WebSocket) Subscribe(uuid UUID) chan interface{} {
 	return broker.Sub(string(uuid))
 }
 
+// Close the underlying websocket connection and return the associated error
+func (socket *WebSocket) Close() error {
+	return socket.conn.Close()
+}
+
 func (socket *WebSocket) call(cmd string) (val interface{}, err error) {
 	err = socket.conn.WriteMessage(websocket.TextMessage, []byte(cmd))
 	if err == nil {
